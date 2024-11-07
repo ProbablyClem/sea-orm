@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
     response::Html,
     routing::{get, get_service, post},
-    Router, Server,
+    Router,
 };
 use axum_example_service::{
     sea_orm::{Database, DatabaseConnection},
@@ -15,8 +15,7 @@ use entity::post;
 use flash::{get_flash_cookie, post_response, PostResponse};
 use migration::{Migrator, MigratorTrait};
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
-use std::{env, net::SocketAddr};
+use std::env;
 use tera::Tera;
 use tower_cookies::{CookieManagerLayer, Cookies};
 use tower_http::services::ServeDir;
@@ -53,7 +52,7 @@ async fn start() -> anyhow::Result<()> {
                 env!("CARGO_MANIFEST_DIR"),
                 "/static"
             )))
-            .handle_error(|error: std::io::Error| async move {
+            .handle_error(|error| async move {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Unhandled internal error: {error}"),
@@ -63,8 +62,8 @@ async fn start() -> anyhow::Result<()> {
         .layer(CookieManagerLayer::new())
         .with_state(state);
 
-    let addr = SocketAddr::from_str(&server_url).unwrap();
-    Server::bind(&addr).serve(app.into_make_service()).await?;
+    let listener = tokio::net::TcpListener::bind(&server_url).await.unwrap();
+    axum::serve(listener, app).await?;
 
     Ok(())
 }
@@ -140,7 +139,7 @@ async fn create_post(
 
     let data = FlashData {
         kind: "success".to_owned(),
-        message: "Post succcessfully added".to_owned(),
+        message: "Post successfully added".to_owned(),
     };
 
     Ok(post_response(&mut cookies, data))
@@ -180,7 +179,7 @@ async fn update_post(
 
     let data = FlashData {
         kind: "success".to_owned(),
-        message: "Post succcessfully updated".to_owned(),
+        message: "Post successfully updated".to_owned(),
     };
 
     Ok(post_response(&mut cookies, data))
@@ -197,7 +196,7 @@ async fn delete_post(
 
     let data = FlashData {
         kind: "success".to_owned(),
-        message: "Post succcessfully deleted".to_owned(),
+        message: "Post successfully deleted".to_owned(),
     };
 
     Ok(post_response(&mut cookies, data))

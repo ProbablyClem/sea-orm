@@ -1,7 +1,7 @@
 use crate::{
-    ActiveModelTrait, ColumnTrait, Delete, DeleteMany, DeleteOne, FromQueryResult, Insert,
-    ModelTrait, PrimaryKeyToColumn, PrimaryKeyTrait, QueryFilter, Related, RelationBuilder,
-    RelationTrait, RelationType, Select, Update, UpdateMany, UpdateOne,
+    ActiveModelBehavior, ActiveModelTrait, ColumnTrait, Delete, DeleteMany, DeleteOne,
+    FromQueryResult, Insert, ModelTrait, PrimaryKeyToColumn, PrimaryKeyTrait, QueryFilter, Related,
+    RelationBuilder, RelationTrait, RelationType, Select, Update, UpdateMany, UpdateOne,
 };
 use sea_query::{Alias, Iden, IntoIden, IntoTableRef, IntoValueTuple, TableRef};
 use std::fmt::Debug;
@@ -17,6 +17,11 @@ pub trait IdenStatic: Iden + Copy + Debug + 'static {
 pub trait EntityName: IdenStatic + Default {
     /// Method to get the name for the schema, defaults to [Option::None] if not set
     fn schema_name(&self) -> Option<&str> {
+        None
+    }
+
+    /// Method to get the comment for the schema, defaults to [Option::None] if not set
+    fn comment(&self) -> Option<&str> {
         None
     }
 
@@ -52,6 +57,9 @@ pub trait EntityName: IdenStatic + Default {
 pub trait EntityTrait: EntityName {
     #[allow(missing_docs)]
     type Model: ModelTrait<Entity = Self> + FromQueryResult;
+
+    #[allow(missing_docs)]
+    type ActiveModel: ActiveModelBehavior<Entity = Self>;
 
     #[allow(missing_docs)]
     type Column: ColumnTrait;
@@ -960,7 +968,6 @@ mod tests {
             );
         }
 
-        delete_by_id("UUID".to_string());
         delete_by_id("UUID".to_string());
         delete_by_id("UUID");
         delete_by_id(Cow::from("UUID"));

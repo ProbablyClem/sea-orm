@@ -6,12 +6,13 @@ use std::time::SystemTime;
 use tracing::info;
 
 use sea_orm::sea_query::{
-    self, extension::postgres::Type, Alias, Expr, ForeignKey, Iden, IntoIden, JoinType, Order,
-    Query, SelectStatement, SimpleExpr, Table,
+    self, extension::postgres::Type, Alias, Expr, ForeignKey, IntoIden, JoinType, Order, Query,
+    SelectStatement, SimpleExpr, Table,
 };
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, Condition, ConnectionTrait, DbBackend, DbErr, DynIden,
-    EntityTrait, FromQueryResult, Iterable, QueryFilter, Schema, Statement, TransactionTrait,
+    ActiveModelTrait, ActiveValue, Condition, ConnectionTrait, DbBackend, DbErr, DeriveIden,
+    DynIden, EntityTrait, FromQueryResult, Iterable, QueryFilter, Schema, Statement,
+    TransactionTrait,
 };
 use sea_schema::{mysql::MySql, postgres::Postgres, probe::SchemaProbe, sqlite::Sqlite};
 
@@ -163,10 +164,11 @@ pub trait MigratorTrait: Send {
         C: ConnectionTrait,
     {
         let builder = db.get_database_backend();
+        let table_name = Self::migration_table_name();
         let schema = Schema::new(builder);
         let mut stmt = schema
             .create_table_from_entity(seaql_migrations::Entity)
-            .table_name(Self::migration_table_name());
+            .table_name(table_name);
         stmt.if_not_exists();
         db.execute(builder.build(&stmt)).await.map(|_| ())
     }
@@ -311,7 +313,7 @@ where
     }
 
     // Drop all tables
-    let stmt = query_tables(db);
+    let stmt = query_tables(db).await;
     let rows = db.query_all(db_backend.build(&stmt)).await?;
     for row in rows.into_iter() {
         let table_name: String = row.try_get("", "table_name")?;
@@ -435,14 +437,14 @@ where
     Ok(())
 }
 
-fn query_tables<C>(db: &C) -> SelectStatement
+async fn query_tables<C>(db: &C) -> SelectStatement
 where
     C: ConnectionTrait,
 {
     match db.get_database_backend() {
-        DbBackend::MySql => MySql::query_tables(),
-        DbBackend::Postgres => Postgres::query_tables(),
-        DbBackend::Sqlite => Sqlite::query_tables(),
+        DbBackend::MySql => MySql.query_tables(),
+        DbBackend::Postgres => Postgres.query_tables(),
+        DbBackend::Sqlite => Sqlite.query_tables(),
     }
 }
 
@@ -457,13 +459,13 @@ where
     }
 }
 
-#[derive(Iden)]
+#[derive(DeriveIden)]
 enum InformationSchema {
-    #[iden = "information_schema"]
+    #[sea_orm(iden = "information_schema")]
     Schema,
-    #[iden = "TABLE_NAME"]
+    #[sea_orm(iden = "TABLE_NAME")]
     TableName,
-    #[iden = "CONSTRAINT_NAME"]
+    #[sea_orm(iden = "CONSTRAINT_NAME")]
     ConstraintName,
     TableConstraints,
     TableSchema,
@@ -500,7 +502,7 @@ where
     stmt
 }
 
-#[derive(Iden)]
+#[derive(DeriveIden)]
 enum PgType {
     Table,
     Typname,
@@ -508,7 +510,7 @@ enum PgType {
     Typelem,
 }
 
-#[derive(Iden)]
+#[derive(DeriveIden)]
 enum PgNamespace {
     Table,
     Oid,

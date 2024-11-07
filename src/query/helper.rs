@@ -3,8 +3,8 @@ use crate::{
     PrimaryKeyToColumn, RelationDef,
 };
 use sea_query::{
-    Alias, ConditionType, Expr, Iden, IntoCondition, IntoIden, LockType, SeaRc, SelectExpr,
-    SelectStatement, TableRef,
+    Alias, ConditionType, Expr, Iden, IntoCondition, IntoIden, LockBehavior, LockType,
+    NullOrdering, SeaRc, SelectExpr, SelectStatement, SimpleExpr, TableRef,
 };
 pub use sea_query::{Condition, ConditionalStatement, DynIden, JoinType, Order, OrderedStatement};
 
@@ -284,7 +284,7 @@ pub trait QuerySelect: Sized {
 
     /// Add an AND HAVING expression
     /// ```
-    /// use sea_orm::{entity::*, query::*, tests_cfg::cake, DbBackend};
+    /// use sea_orm::{sea_query::{Alias, Expr}, entity::*, query::*, tests_cfg::cake, DbBackend};
     ///
     /// assert_eq!(
     ///     cake::Entity::find()
@@ -301,10 +301,10 @@ pub trait QuerySelect: Sized {
     ///         .column_as(cake::Column::Id.count(), "count")
     ///         .column_as(cake::Column::Id.sum(), "sum_of_id")
     ///         .group_by(cake::Column::Name)
-    ///         .having(cake::Column::Id.gt(6))
+    ///         .having(Expr::col(Alias::new("count")).gt(6))
     ///         .build(DbBackend::MySql)
     ///         .to_string(),
-    ///     "SELECT COUNT(`cake`.`id`) AS `count`, SUM(`cake`.`id`) AS `sum_of_id` FROM `cake` GROUP BY `cake`.`name` HAVING `cake`.`id` > 6"
+    ///     "SELECT COUNT(`cake`.`id`) AS `count`, SUM(`cake`.`id`) AS `sum_of_id` FROM `cake` GROUP BY `cake`.`name` HAVING `count` > 6"
     /// );
     /// ```
     fn having<F>(mut self, filter: F) -> Self
@@ -446,6 +446,141 @@ pub trait QuerySelect: Sized {
         self.query().lock_exclusive();
         self
     }
+
+    /// Row locking with behavior (if supported).
+    ///
+    /// See [`SelectStatement::lock_with_behavior`](https://docs.rs/sea-query/*/sea_query/query/struct.SelectStatement.html#method.lock_with_behavior).
+    fn lock_with_behavior(mut self, r#type: LockType, behavior: LockBehavior) -> Self {
+        self.query().lock_with_behavior(r#type, behavior);
+        self
+    }
+
+    /// Add an expression to the select expression list.
+    /// ```
+    /// use sea_orm::sea_query::Expr;
+    /// use sea_orm::{entity::*, tests_cfg::cake, DbBackend, QuerySelect, QueryTrait};
+    ///
+    /// assert_eq!(
+    ///     cake::Entity::find()
+    ///         .select_only()
+    ///         .expr(Expr::col((cake::Entity, cake::Column::Id)))
+    ///         .build(DbBackend::MySql)
+    ///         .to_string(),
+    ///     "SELECT `cake`.`id` FROM `cake`"
+    /// );
+    /// ```
+    fn expr<T>(mut self, expr: T) -> Self
+    where
+        T: Into<SelectExpr>,
+    {
+        self.query().expr(expr);
+        self
+    }
+
+    /// Add select expressions from vector of [`SelectExpr`].
+    /// ```
+    /// use sea_orm::sea_query::Expr;
+    /// use sea_orm::{entity::*, tests_cfg::cake, DbBackend, QuerySelect, QueryTrait};
+    ///
+    /// assert_eq!(
+    ///     cake::Entity::find()
+    ///         .select_only()
+    ///         .exprs([
+    ///             Expr::col((cake::Entity, cake::Column::Id)),
+    ///             Expr::col((cake::Entity, cake::Column::Name)),
+    ///         ])
+    ///         .build(DbBackend::MySql)
+    ///         .to_string(),
+    ///     "SELECT `cake`.`id`, `cake`.`name` FROM `cake`"
+    /// );
+    /// ```
+    fn exprs<T, I>(mut self, exprs: I) -> Self
+    where
+        T: Into<SelectExpr>,
+        I: IntoIterator<Item = T>,
+    {
+        self.query().exprs(exprs);
+        self
+    }
+
+    /// Select column.
+    /// ```
+    /// use sea_orm::sea_query::{Alias, Expr, Func};
+    /// use sea_orm::{entity::*, tests_cfg::cake, DbBackend, QuerySelect, QueryTrait};
+    ///
+    /// assert_eq!(
+    ///     cake::Entity::find()
+    ///         .expr_as(
+    ///             Func::upper(Expr::col((cake::Entity, cake::Column::Name))),
+    ///             "name_upper"
+    ///         )
+    ///         .build(DbBackend::MySql)
+    ///         .to_string(),
+    ///     "SELECT `cake`.`id`, `cake`.`name`, UPPER(`cake`.`name`) AS `name_upper` FROM `cake`"
+    /// );
+    /// ```
+    fn expr_as<T, A>(mut self, expr: T, alias: A) -> Self
+    where
+        T: Into<SimpleExpr>,
+        A: IntoIdentity,
+    {
+        self.query().expr_as(expr, alias.into_identity());
+        self
+    }
+
+    /// Same as `expr_as`. Here for legacy reasons.
+    ///
+    /// Select column.
+    ///
+    /// ```
+    /// use sea_orm::sea_query::{Alias, Expr, Func};
+    /// use sea_orm::{entity::*, tests_cfg::cake, DbBackend, QuerySelect, QueryTrait};
+    ///
+    /// assert_eq!(
+    ///     cake::Entity::find()
+    ///         .expr_as(
+    ///             Func::upper(Expr::col((cake::Entity, cake::Column::Name))),
+    ///             "name_upper"
+    ///         )
+    ///         .build(DbBackend::MySql)
+    ///         .to_string(),
+    ///     "SELECT `cake`.`id`, `cake`.`name`, UPPER(`cake`.`name`) AS `name_upper` FROM `cake`"
+    /// );
+    /// ```
+    fn expr_as_<T, A>(mut self, expr: T, alias: A) -> Self
+    where
+        T: Into<SimpleExpr>,
+        A: IntoIdentity,
+    {
+        self.query().expr_as(expr, alias.into_identity());
+        self
+    }
+
+    /// Shorthand of `expr_as(Expr::col((T, C)), A)`.
+    ///
+    /// ```
+    /// use sea_orm::sea_query::{Alias, Expr, Func};
+    /// use sea_orm::{entity::*, tests_cfg::cake, DbBackend, QuerySelect, QueryTrait};
+    ///
+    /// assert_eq!(
+    ///     cake::Entity::find()
+    ///         .select_only()
+    ///         .tbl_col_as((cake::Entity, cake::Column::Name), "cake_name")
+    ///         .build(DbBackend::MySql)
+    ///         .to_string(),
+    ///     "SELECT `cake`.`name` AS `cake_name` FROM `cake`"
+    /// );
+    /// ```
+    fn tbl_col_as<T, C, A>(mut self, (tbl, col): (T, C), alias: A) -> Self
+    where
+        T: IntoIden + 'static,
+        C: IntoIden + 'static,
+        A: IntoIdentity,
+    {
+        self.query()
+            .expr_as(Expr::col((tbl, col)), alias.into_identity());
+        self
+    }
 }
 
 // LINT: when the column does not appear in tables selected from
@@ -519,6 +654,28 @@ pub trait QueryOrder: Sized {
             .order_by_expr(col.into_simple_expr(), Order::Desc);
         self
     }
+
+    /// Add an order_by expression with nulls ordering option
+    /// ```
+    /// use sea_orm::{entity::*, query::*, tests_cfg::cake, DbBackend};
+    /// use sea_query::NullOrdering;
+    ///
+    /// assert_eq!(
+    ///     cake::Entity::find()
+    ///         .order_by_with_nulls(cake::Column::Id, Order::Asc, NullOrdering::First)
+    ///         .build(DbBackend::Postgres)
+    ///         .to_string(),
+    ///     r#"SELECT "cake"."id", "cake"."name" FROM "cake" ORDER BY "cake"."id" ASC NULLS FIRST"#
+    /// );
+    /// ```
+    fn order_by_with_nulls<C>(mut self, col: C, ord: Order, nulls: NullOrdering) -> Self
+    where
+        C: IntoSimpleExpr,
+    {
+        self.query()
+            .order_by_expr_with_nulls(col.into_simple_expr(), ord, nulls);
+        self
+    }
 }
 
 // LINT: when the column does not appear in tables selected from
@@ -558,6 +715,35 @@ pub trait QueryFilter: Sized {
     ///         .build(DbBackend::MySql)
     ///         .to_string(),
     ///     "SELECT `cake`.`id`, `cake`.`name` FROM `cake` WHERE `cake`.`id` = 4 OR `cake`.`id` = 5"
+    /// );
+    /// ```
+    ///
+    /// Like above, but using the `IN` operator.
+    ///
+    /// ```
+    /// use sea_orm::{entity::*, query::*, tests_cfg::cake, DbBackend};
+    ///
+    /// assert_eq!(
+    ///     cake::Entity::find()
+    ///         .filter(cake::Column::Id.is_in([4, 5]))
+    ///         .build(DbBackend::MySql)
+    ///         .to_string(),
+    ///     "SELECT `cake`.`id`, `cake`.`name` FROM `cake` WHERE `cake`.`id` IN (4, 5)"
+    /// );
+    /// ```
+    ///
+    /// Like above, but using the `ANY` operator. Postgres only.
+    ///
+    /// ```
+    /// use sea_orm::sea_query::{extension::postgres::PgFunc, Expr};
+    /// use sea_orm::{entity::*, query::*, tests_cfg::cake, DbBackend};
+    ///
+    /// assert_eq!(
+    ///     cake::Entity::find()
+    ///         .filter(Expr::col((cake::Entity, cake::Column::Id)).eq(PgFunc::any(vec![4, 5])))
+    ///         .build(DbBackend::Postgres)
+    ///         .to_string(),
+    ///     r#"SELECT "cake"."id", "cake"."name" FROM "cake" WHERE "cake"."id" = ANY(ARRAY [4,5])"#
     /// );
     /// ```
     ///

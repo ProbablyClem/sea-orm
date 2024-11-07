@@ -51,7 +51,7 @@ where
 {
     let db_connect = |url: String| async {
         let connect_options = ConnectOptions::new(url)
-            .set_schema_search_path(schema.to_owned())
+            .set_schema_search_path(format!("{schema},public"))
             .to_owned();
 
         Database::connect(connect_options).await
@@ -181,6 +181,9 @@ where
     println!("\nMigrator::get_applied_migrations");
     let migrations = Migrator::get_applied_migrations(db).await?;
     assert_eq!(migrations.len(), 6);
+
+    assert!(!manager.has_index("cake", "non_existent_index").await?);
+    assert!(manager.has_index("cake", "cake_name_index").await?);
 
     let migration = migrations.get(0).unwrap();
     assert_eq!(migration.name(), "m20220118_000001_create_cake_table");
