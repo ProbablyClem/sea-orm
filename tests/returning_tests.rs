@@ -1,15 +1,13 @@
+#![allow(unused_imports, dead_code)]
+
 pub mod common;
 
 pub use common::{bakery_chain::*, setup::*, TestContext};
-use sea_orm::entity::prelude::*;
-use sea_query::Query;
+use sea_orm::{entity::prelude::*, IntoActiveModel, Set};
+pub use sea_query::{Expr, Query};
+use serde_json::json;
 
 #[sea_orm_macros::test]
-#[cfg(any(
-    feature = "sqlx-mysql",
-    feature = "sqlx-sqlite",
-    feature = "sqlx-postgres"
-))]
 async fn main() -> Result<(), DbErr> {
     use bakery::*;
 
@@ -32,7 +30,9 @@ async fn main() -> Result<(), DbErr> {
         ])
         .and_where(Column::Id.eq(1));
 
-    let returning = Query::returning().columns([Column::Id, Column::Name, Column::ProfitMargin]);
+    let columns = [Column::Id, Column::Name, Column::ProfitMargin];
+    let returning =
+        Query::returning().exprs(columns.into_iter().map(|c| c.into_returning_expr(builder)));
 
     create_tables(db).await?;
 
@@ -65,4 +65,123 @@ async fn main() -> Result<(), DbErr> {
     ctx.delete().await;
 
     Ok(())
+}
+
+#[sea_orm_macros::test]
+#[cfg_attr(
+    any(
+        feature = "sqlx-mysql",
+        all(
+            feature = "sqlx-sqlite",
+            not(feature = "sqlite-use-returning-for-3_35")
+        )
+    ),
+    should_panic(expected = "Database backend doesn't support RETURNING")
+)]
+async fn update_many() {
+    pub use common::{features::*, TestContext};
+    use edit_log::*;
+
+    let run = || async {
+        let ctx = TestContext::new("returning_tests_update_many").await;
+        let db = &ctx.db;
+
+        create_tables(db).await?;
+
+        Entity::insert(
+            Model {
+                id: 1,
+                action: "before_save".into(),
+                values: json!({ "id": "unique-id-001" }),
+            }
+            .into_active_model(),
+        )
+        .exec(db)
+        .await?;
+
+        Entity::insert(
+            Model {
+                id: 2,
+                action: "before_save".into(),
+                values: json!({ "id": "unique-id-002" }),
+            }
+            .into_active_model(),
+        )
+        .exec(db)
+        .await?;
+
+        Entity::insert(
+            Model {
+                id: 3,
+                action: "before_save".into(),
+                values: json!({ "id": "unique-id-003" }),
+            }
+            .into_active_model(),
+        )
+        .exec(db)
+        .await?;
+
+        assert_eq!(
+            Entity::find().all(db).await?,
+            [
+                Model {
+                    id: 1,
+                    action: "before_save".into(),
+                    values: json!({ "id": "unique-id-001" }),
+                },
+                Model {
+                    id: 2,
+                    action: "before_save".into(),
+                    values: json!({ "id": "unique-id-002" }),
+                },
+                Model {
+                    id: 3,
+                    action: "before_save".into(),
+                    values: json!({ "id": "unique-id-003" }),
+                },
+            ]
+        );
+
+        // Update many with returning
+        assert_eq!(
+            Entity::update_many()
+                .col_expr(
+                    Column::Values,
+                    Expr::value(json!({ "remarks": "save log" }))
+                )
+                .filter(Column::Action.eq("before_save"))
+                .exec_with_returning(db)
+                .await?,
+            [
+                Model {
+                    id: 1,
+                    action: "before_save".into(),
+                    values: json!({ "remarks": "save log" }),
+                },
+                Model {
+                    id: 2,
+                    action: "before_save".into(),
+                    values: json!({ "remarks": "save log" }),
+                },
+                Model {
+                    id: 3,
+                    action: "before_save".into(),
+                    values: json!({ "remarks": "save log" }),
+                },
+            ]
+        );
+
+        // No-op
+        assert_eq!(
+            Entity::update_many()
+                .filter(Column::Action.eq("before_save"))
+                .exec_with_returning(db)
+                .await?,
+            []
+        );
+
+        Result::<(), DbErr>::Ok(())
+    };
+
+    run().await.unwrap();
 }

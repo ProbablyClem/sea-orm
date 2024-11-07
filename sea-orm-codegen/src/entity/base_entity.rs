@@ -113,7 +113,7 @@ impl Entity {
         self.get_relation_enum_name()
             .into_iter()
             .chain(self_relations_reverse)
-            .chain(conjunct_related_names.into_iter())
+            .chain(conjunct_related_names)
             .collect()
     }
 
@@ -276,7 +276,7 @@ impl Entity {
 #[cfg(test)]
 mod tests {
     use quote::{format_ident, quote};
-    use sea_query::{ColumnType, ForeignKeyAction};
+    use sea_query::{ColumnType, ForeignKeyAction, StringLen};
 
     use crate::{Column, DateTimeCrate, DecimalCrate, Entity, PrimaryKey, Relation, RelationType};
 
@@ -293,7 +293,7 @@ mod tests {
                 },
                 Column {
                     name: "name".to_owned(),
-                    col_type: ColumnType::String(None),
+                    col_type: ColumnType::String(StringLen::None),
                     auto_increment: false,
                     not_null: false,
                     unique: false,

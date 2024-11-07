@@ -72,7 +72,7 @@ where
     ///     r#"INSERT INTO "cake" ("name") VALUES ('Apple Pie')"#,
     /// );
     /// ```
-    pub fn one<M>(m: M) -> Insert<A>
+    pub fn one<M>(m: M) -> Self
     where
         M: IntoActiveModel<A>,
     {
@@ -208,6 +208,69 @@ where
         self.query.on_conflict(on_conflict);
         self
     }
+
+    /// Allow insert statement return safely if inserting nothing.
+    /// The database will not be affected.
+    pub fn do_nothing(self) -> TryInsert<A>
+    where
+        A: ActiveModelTrait,
+    {
+        TryInsert::from_insert(self)
+    }
+
+    /// alias to do_nothing
+    pub fn on_empty_do_nothing(self) -> TryInsert<A>
+    where
+        A: ActiveModelTrait,
+    {
+        TryInsert::from_insert(self)
+    }
+
+    /// Set ON CONFLICT on primary key do nothing, but with MySQL specific polyfill.
+    ///
+    /// ```
+    /// use sea_orm::{entity::*, query::*, sea_query::OnConflict, tests_cfg::cake, DbBackend};
+    ///
+    /// let orange = cake::ActiveModel {
+    ///     id: ActiveValue::set(2),
+    ///     name: ActiveValue::set("Orange".to_owned()),
+    /// };
+    ///
+    /// assert_eq!(
+    ///     cake::Entity::insert(orange.clone())
+    ///         .on_conflict_do_nothing()
+    ///         .build(DbBackend::MySql)
+    ///         .to_string(),
+    ///     r#"INSERT INTO `cake` (`id`, `name`) VALUES (2, 'Orange') ON DUPLICATE KEY UPDATE `id` = `id`"#,
+    /// );
+    /// assert_eq!(
+    ///     cake::Entity::insert(orange.clone())
+    ///         .on_conflict_do_nothing()
+    ///         .build(DbBackend::Postgres)
+    ///         .to_string(),
+    ///     r#"INSERT INTO "cake" ("id", "name") VALUES (2, 'Orange') ON CONFLICT ("id") DO NOTHING"#,
+    /// );
+    /// assert_eq!(
+    ///     cake::Entity::insert(orange)
+    ///         .on_conflict_do_nothing()
+    ///         .build(DbBackend::Sqlite)
+    ///         .to_string(),
+    ///     r#"INSERT INTO "cake" ("id", "name") VALUES (2, 'Orange') ON CONFLICT ("id") DO NOTHING"#,
+    /// );
+    /// ```
+    pub fn on_conflict_do_nothing(mut self) -> TryInsert<A>
+    where
+        A: ActiveModelTrait,
+    {
+        let primary_keys = <A::Entity as EntityTrait>::PrimaryKey::iter();
+        self.query.on_conflict(
+            OnConflict::columns(primary_keys.clone())
+                .do_nothing_on(primary_keys)
+                .to_owned(),
+        );
+
+        TryInsert::from_insert(self)
+    }
 }
 
 impl<A> QueryTrait for Insert<A>
@@ -229,11 +292,108 @@ where
     }
 }
 
+/// Performs INSERT operations on a ActiveModel, will do nothing if input is empty.
+///
+/// All functions works the same as if it is Insert<A>. Please refer to Insert<A> page for more information
+#[derive(Debug)]
+pub struct TryInsert<A>
+where
+    A: ActiveModelTrait,
+{
+    pub(crate) insert_struct: Insert<A>,
+}
+
+impl<A> Default for TryInsert<A>
+where
+    A: ActiveModelTrait,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[allow(missing_docs)]
+impl<A> TryInsert<A>
+where
+    A: ActiveModelTrait,
+{
+    pub(crate) fn new() -> Self {
+        Self {
+            insert_struct: Insert::new(),
+        }
+    }
+
+    pub fn one<M>(m: M) -> Self
+    where
+        M: IntoActiveModel<A>,
+    {
+        Self::new().add(m)
+    }
+
+    pub fn many<M, I>(models: I) -> Self
+    where
+        M: IntoActiveModel<A>,
+        I: IntoIterator<Item = M>,
+    {
+        Self::new().add_many(models)
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn add<M>(mut self, m: M) -> Self
+    where
+        M: IntoActiveModel<A>,
+    {
+        self.insert_struct = self.insert_struct.add(m);
+        self
+    }
+
+    pub fn add_many<M, I>(mut self, models: I) -> Self
+    where
+        M: IntoActiveModel<A>,
+        I: IntoIterator<Item = M>,
+    {
+        for model in models.into_iter() {
+            self.insert_struct = self.insert_struct.add(model);
+        }
+        self
+    }
+
+    pub fn on_conflict(mut self, on_conflict: OnConflict) -> Self {
+        self.insert_struct.query.on_conflict(on_conflict);
+        self
+    }
+
+    // helper function for do_nothing in Insert<A>
+    pub fn from_insert(insert: Insert<A>) -> Self {
+        Self {
+            insert_struct: insert,
+        }
+    }
+}
+
+impl<A> QueryTrait for TryInsert<A>
+where
+    A: ActiveModelTrait,
+{
+    type QueryStatement = InsertStatement;
+
+    fn query(&mut self) -> &mut InsertStatement {
+        &mut self.insert_struct.query
+    }
+
+    fn as_query(&self) -> &InsertStatement {
+        &self.insert_struct.query
+    }
+
+    fn into_query(self) -> InsertStatement {
+        self.insert_struct.query
+    }
+}
 #[cfg(test)]
 mod tests {
     use sea_query::OnConflict;
 
-    use crate::tests_cfg::cake;
+    use crate::tests_cfg::cake::{self};
     use crate::{ActiveValue, DbBackend, DbErr, EntityTrait, Insert, IntoActiveModel, QueryTrait};
 
     #[test]

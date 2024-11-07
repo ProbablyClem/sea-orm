@@ -86,6 +86,10 @@ impl<'a> TransactionStream<'a> {
                     let elapsed = _start.map(|s| s.elapsed().unwrap_or_default());
                     MetricStream::new(_metric_callback, stmt, elapsed, stream)
                 }
+                #[cfg(feature = "proxy")]
+                InnerConnection::Proxy(c) => {
+                    todo!("Proxy connection is not supported")
+                }
                 #[allow(unreachable_patterns)]
                 _ => unreachable!(),
             },
